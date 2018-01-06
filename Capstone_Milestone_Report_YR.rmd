@@ -1,0 +1,192 @@
+---
+title: "Capstone - Milestone Report - YR"
+author: "Yonatan Rafael"
+date: "December 27, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+## Understanding the Problem
+
+Two objectives in this section:
+
+1. Obtain Data  
+2. Familiarize myself with the NLP and Text mining.
+
+Begin with a few notes about the data and NLP:
+
+* The data is in 4 folders, separated by country/language, with 3 files per folder, separated by source (blogs, news, twitter).  
+* The data came from the Coursera Site.  
+* Other data sources I would possible consider include text messages and emails.  
+* Common steps in NLP: 1) Syntax 2) Semantics 3) Discourse 4) Speech.  
+* Common issues in NLP: 1) Punctuation 2) Typos 3) Digits 4) Capital versus Lower Case.  
+* NLP is another form of data sciencs that relies heavily on machine learning. It's the interaction between computers and human languages.
+
+The code below loads loads the data. Starts by checking for accessibility, if not, download and unzip. The code also looks for a list of banned words (found on http://www.bannedwordlist.com/), and downloads that file as well. Lastly, the code reads all the data.
+
+```{r, warning= FALSE}
+setwd("C:/Users/yrafael/Desktop/Data Science Course/Course Code/Capstone")
+if(!file.exists("Coursera-SwiftKey.zip")) {
+        fileUrl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip" 
+        download.file(fileUrl, destfile="C:/Users/yrafael/Desktop/Data Science Course/Course Code/Capstone/Coursera-SwiftKey.zip")
+        unzip("Coursera-SwiftKey.zip")
+}
+
+if(!file.exists("badwords.txt")) {
+        fileUrl2 <- "http://www.bannedwordlist.com/lists/swearWords.txt"
+        download.file(fileUrl2, destfile="C:/Users/yrafael/Desktop/Data Science Course/Course Code/Capstone/badwords.txt")
+}
+
+badwords <- readLines("badwords.txt")
+
+setwd("C:/Users/yrafael/Desktop/Data Science Course/Course Code/Capstone/final/en_US")
+US_Blogs <- readLines("en_US.blogs.txt", encoding = "UTF-8")
+US_News <- readLines("en_US.news.txt", encoding = "UTF-8")
+US_Twitter <- readLines("en_US.twitter.txt")
+```
+
+Extract and publish some relevant facts about the data:
+
+```{r}
+setwd("C:/Users/yrafael/Desktop/Data Science Course/Course Code/Capstone/final/en_US")
+stats <- data.frame(Source = c("Blogs", "News", "Twitter"),
+                    Size_MB = c(file.info("en_US.blogs.txt")$size * 0.000001, file.info("en_US.news.txt")$size * 0.000001, file.info("en_US.twitter.txt")$size * 0.000001),
+                    NumberLines = c(length(US_Blogs), length(US_News), length(US_Twitter)))
+stats
+```
+
+Download necessary packages for the remainder of this analysis.
+
+```{r, warning = FALSE}
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RWeka)
+```
+
+## Getting and Cleaning Data
+
+Two objectives in this section:
+
+1. Tokenization
+2. Profanity Filtering
+
+The code below begins by taking samples of the three types of data sets, combining them, and cleaning out rogue characters (likely from the downloading process), along with punctuation. It then creates a vector of bad words to use in the next function. The function, using features of the tm package, is called **tokenizer**. Tokenizer does the following:
+
+* Makes every character lower case.
+* Removes punctuation.
+* Removes numbers.
+* Removes non-standard words.
+* Removes profanity using the previously mentioned vector.
+* Strips out white space.
+
+The result is a corpus, a large collection of texts, which will be used for the remainder of our analysis.
+
+Lastly, we'll remove aspects files, vectors, data frames, and tables that are no longer in use.
+
+```{r}
+sample_US_Blogs <- sample(US_Blogs, length(US_Blogs)*.05) 
+sample_US_News <- sample(US_News, length(US_News)*.05)
+sample_US_Twitter <- sample(US_Twitter, length(US_Twitter)*.05)
+combineddata <- c(sample_US_Blogs, sample_US_News, sample_US_Twitter)
+cleandata <- gsub("[^A-Za-z0-9 ]", "", combineddata)       #remove non-alphabetic/numeric characters
+
+profanity <- VectorSource(badwords)
+
+tokenizer <- function (filename){
+        corpus <- VCorpus(VectorSource(filename))
+        corpus <- tm_map(corpus, content_transformer(tolower))
+        corpus <- tm_map(corpus, removePunctuation)
+        corpus <- tm_map(corpus, removeNumbers)
+        corpus <- tm_map(corpus, removeWords, stopwords("en"))
+        corpus <- tm_map(corpus, removeWords, profanity)
+        corpus <- tm_map(corpus, stripWhitespace)
+        #corpus <- tm_map(corpus, stemDocument)          #consider
+}
+
+corpusdata <- tokenizer(cleandata)
+
+rm(US_Blogs, US_News, US_Twitter, badwords, sample_US_Blogs, sample_US_News, sample_US_Twitter, profanity, combineddata, cleandata, tokenizer, stats)
+```
+
+## Exploratory Data Analysis
+
+Two objectives in this section:
+
+1. Exploratory Analysis
+2. Understand frequencies of words and word pairs.
+
+The code below creates Term Document Matrices for a uni-gram, bi-gram, and tri-gram scenarios. It also removes infrequent terms to limit the size of the data set being used.
+
+```{r}
+BiToken <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+TriToken <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+tdm <- TermDocumentMatrix(corpusdata)
+tdm2 <- TermDocumentMatrix(corpusdata, control = list(tokenize = BiToken))
+tdm3 <- TermDocumentMatrix(corpusdata, control = list(tokenize = TriToken))
+
+cleanTDM <- removeSparseTerms(tdm, .99)
+cleanTDM2 <- removeSparseTerms(tdm2, .998)
+cleanTDM3 <- removeSparseTerms(tdm3, .9998)
+
+#findFreqTerms(cleanTDM, 100)
+#findFreqTerms(cleanTDM2, 20)
+#findFreqTerms(cleanTDM3, 5)
+
+cleanTDMmatrix <- as.matrix(cleanTDM)
+cleanTDM2matrix <- as.matrix(cleanTDM2)
+cleanTDM3matrix <- as.matrix(cleanTDM3)
+
+FreqMatrix <- data.frame(ST = rownames(cleanTDMmatrix), Freq = rowSums(cleanTDMmatrix), row.names = NULL)
+FreqMatrix2 <- data.frame(ST = rownames(cleanTDM2matrix), Freq = rowSums(cleanTDM2matrix), row.names = NULL)
+FreqMatrix3 <- data.frame(ST = rownames(cleanTDM3matrix), Freq = rowSums(cleanTDM3matrix), row.names = NULL)
+
+SortFreqMatrix <- FreqMatrix[order(-FreqMatrix$Freq),] 
+SortFreqMatrix2 <- FreqMatrix2[order(-FreqMatrix2$Freq),] 
+SortFreqMatrix3 <- FreqMatrix3[order(-FreqMatrix3$Freq),] 
+
+#head(SortFreqMatrix, 10)
+#head(SortFreqMatrix2, 10)
+#head(SortFreqMatrix3, 10)
+```
+
+Two visualization are created, the first being word clouds for all three scenarios:
+
+```{r fig.width = 11}
+par(mfrow = c(1, 3))
+wordcloud(words = SortFreqMatrix$ST, freq = SortFreqMatrix$Freq,
+          max.words=100, random.order=FALSE, colors = brewer.pal(4, "Set1"), main = "Uni Gram")
+text(x=0.5, y=1.2, "Uni Gram")
+wordcloud(words = SortFreqMatrix2$ST, freq = SortFreqMatrix2$Freq,
+          max.words=100, random.order=FALSE, colors = brewer.pal(4, "Set1"), main = "Bi Gram")
+text(x=0.5, y=1.2, "Bi Gram")
+wordcloud(words = SortFreqMatrix3$ST, freq = SortFreqMatrix3$Freq,
+          max.words=100, random.order=FALSE, colors = brewer.pal(4, "Set1"), main = "Tri Gram")
+text(x=0.5, y=1.2, "Tri Gram")
+```
+
+Followed by bar plots of all three scenarios:
+
+```{r fig.width = 11, warning = FALSE}
+par(mfrow = c(1, 3))
+barplot(rev(SortFreqMatrix[1:15,]$Freq), las = 2, names.arg = SortFreqMatrix[1:15,]$ST,
+        col ="darkblue", main ="Uni Gram",
+        xlab = "Frequencies", horiz=TRUE)
+barplot(rev(SortFreqMatrix2[1:15,]$Freq), las = 2, names.arg = SortFreqMatrix2[1:15,]$ST,
+        col ="darkblue", main ="Bi Gram",
+        xlab = "Frequencies", horiz=TRUE)
+barplot(rev(SortFreqMatrix3[1:15,]$Freq), las = 2, names.arg = SortFreqMatrix3[1:15,]$ST,
+        col ="darkblue", main ="Tri Gram",
+        xlab = "Frequencies", horiz=TRUE)
+```
+
+## Next Steps
+
+1. Build a predictive model based on the Term Document Matrices created above.
+2. Build a data product to utilize the predictive model.
+3. Build a slide deck promoting the data product.
+
